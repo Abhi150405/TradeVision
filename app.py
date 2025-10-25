@@ -52,7 +52,32 @@ gemini_model = None
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        gemini_model = genai.GenerativeModel("models/gemini-1.5-pro")
+        # Try different model names in order of preference
+        model_names = [
+            "gemini-2.5-flash-lite",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash", 
+            "gemini-pro",
+            "models/gemini-2.5-flash-lite",
+            "models/gemini-1.5-pro",
+            "models/gemini-1.5-flash",
+            "models/gemini-pro"
+        ]
+        
+        gemini_model = None
+        for model_name in model_names:
+            try:
+                gemini_model = genai.GenerativeModel(model_name)
+                # Test the model with a simple request
+                test_response = gemini_model.generate_content("Hello")
+                st.success(f"✅ Gemini AI configured successfully with model: {model_name}")
+                break
+            except Exception as model_error:
+                continue
+        
+        if gemini_model is None:
+            st.warning("⚠️ Could not initialize any Gemini model. Please check your API key and model availability.")
+            
     except Exception as e:
         st.warning(f"Gemini API configuration failed: {e}")
 
@@ -120,6 +145,22 @@ if use_inr:
     st.sidebar.info(f"💱 USD to INR Rate: ₹{USD_TO_INR_RATE:.2f}")
 else:
     st.sidebar.info(f"💱 USD to INR Rate: ₹{USD_TO_INR_RATE:.2f}")
+
+# Debug section for Gemini API
+if st.sidebar.checkbox("🔧 Debug Gemini API"):
+    st.sidebar.subheader("Gemini API Debug Info")
+    if GEMINI_API_KEY:
+        st.sidebar.success("✅ API Key Found")
+        try:
+            models = genai.list_models()
+            available_models = [model.name for model in models if 'generateContent' in model.supported_generation_methods]
+            st.sidebar.write("Available models:")
+            for model in available_models[:3]:
+                st.sidebar.write(f"- {model}")
+        except Exception as e:
+            st.sidebar.error(f"❌ Error listing models: {e}")
+    else:
+        st.sidebar.error("❌ No API Key Found")
 
 # Sentiment Analysis Configuration
 st.sidebar.subheader("🧠 Sentiment Analysis")
@@ -893,7 +934,18 @@ def get_gemini_insights(news_text):
             response = gemini_model.generate_content(prompt)
             return response.text
         except Exception as e:
-            return f"Error fetching insights from Gemini AI: {e}"
+            # Enhanced error handling with model debugging
+            error_msg = f"Error fetching insights from Gemini AI: {e}"
+            
+            # Try to get available models for debugging
+            try:
+                models = genai.list_models()
+                available_models = [model.name for model in models if 'generateContent' in model.supported_generation_methods]
+                error_msg += f"\n\nAvailable models: {', '.join(available_models[:5])}"
+            except:
+                pass
+                
+            return error_msg
     else:
         return "Gemini AI not available. Please configure your API key for AI insights."
 
