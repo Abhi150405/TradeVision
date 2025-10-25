@@ -211,11 +211,15 @@ try:
         st.metric("Test Samples", len(X_test))
     
     # Additional data validation
-    st.info(f"📊 Data Summary:")
+    st.info("📊 Data Summary:")
     st.write(f"- Total data points: {len(dataset)}")
     st.write(f"- Sequence length: {time_step}")
     st.write(f"- Generated sequences: {len(X)}")
-    st.write(f"- Price range: ${stock_data['Close'].min():.2f} - ${stock_data['Close'].max():.2f}")
+    
+    # Fix the price range formatting
+    min_price = float(stock_data['Close'].min())
+    max_price = float(stock_data['Close'].max())
+    st.write(f"- Price range: ${min_price:.2f} - ${max_price:.2f}")
 
 except Exception as e:
     st.error(f"❌ Error in data preprocessing: {e}")
@@ -495,13 +499,13 @@ with col4:
 # Additional metrics
 col5, col6 = st.columns(2)
 with col5:
-    st.metric("Mean Absolute Percentage Error", f"{mape:.2f}%")
+    st.metric("Mean Absolute Percentage Error", f"{float(mape):.2f}%")
 with col6:
     # Calculate directional accuracy
     actual_direction = np.diff(Y_test_original.flatten())
     predicted_direction = np.diff(Y_pred.flatten())
     directional_accuracy = np.mean((actual_direction * predicted_direction) > 0) * 100
-    st.metric("Directional Accuracy", f"{directional_accuracy:.2f}%")
+    st.metric("Directional Accuracy", f"{float(directional_accuracy):.2f}%")
 
 # -----------------------------
 # Enhanced Visualization - Actual vs Predicted
@@ -617,8 +621,8 @@ with col1:
     )
 
 with col2:
-    st.metric("Current Price", f"${current_price:.2f}")
-    st.metric("Predicted Price (7 days)", f"${future_df['Predicted_Close'].iloc[6]:.2f}")
+    st.metric("Current Price", f"${float(current_price):.2f}")
+    st.metric("Predicted Price (7 days)", f"${float(future_df['Predicted_Close'].iloc[6]):.2f}")
     
     # Overall trend
     trend = "📈 Bullish" if future_df['Price_Change'].iloc[-1] > 0 else "📉 Bearish"
@@ -775,11 +779,11 @@ def calculate_sentiment_trends(article_sentiments):
     total_articles = len(article_sentiments)
     
     return {
-        'positive_pct': (positive_count / total_articles) * 100 if total_articles > 0 else 0,
-        'negative_pct': (negative_count / total_articles) * 100 if total_articles > 0 else 0,
-        'neutral_pct': (neutral_count / total_articles) * 100 if total_articles > 0 else 0,
-        'sentiment_ratio': positive_count / negative_count if negative_count > 0 else positive_count,
-        'sentiment_strength': abs(sum(art['sentiment']['compound'] for art in article_sentiments)) / total_articles if total_articles > 0 else 0
+        'positive_pct': float((positive_count / total_articles) * 100) if total_articles > 0 else 0.0,
+        'negative_pct': float((negative_count / total_articles) * 100) if total_articles > 0 else 0.0,
+        'neutral_pct': float((neutral_count / total_articles) * 100) if total_articles > 0 else 0.0,
+        'sentiment_ratio': float(positive_count / negative_count) if negative_count > 0 else float(positive_count),
+        'sentiment_strength': float(abs(sum(art['sentiment']['compound'] for art in article_sentiments)) / total_articles) if total_articles > 0 else 0.0
     }
 
 def get_sentiment_recommendation(sentiment_data, trends, threshold=0.05):
@@ -864,7 +868,7 @@ if enable_sentiment_analysis and news_text_combined and stock_news_articles:
     with col2:
         st.metric("Sentiment Strength", f"{sentiment_trends['sentiment_strength']:.3f}")
     with col3:
-        st.metric("Bullish Ratio", f"{sentiment_trends['sentiment_ratio']:.2f}")
+        st.metric("Bullish Ratio", f"{float(sentiment_trends['sentiment_ratio']):.2f}")
     with col4:
         st.metric("Articles Analyzed", len(stock_news_articles))
     
@@ -984,9 +988,9 @@ elif enable_sentiment_analysis and news_text_combined:
     with col2:
         # Sentiment scores
         st.markdown("### 📊 Sentiment Scores")
-        st.metric("Positive", f"{overall_sentiment['pos']:.2f}")
-        st.metric("Neutral", f"{overall_sentiment['neu']:.2f}")
-        st.metric("Negative", f"{overall_sentiment['neg']:.2f}")
+        st.metric("Positive", f"{float(overall_sentiment['pos']):.2f}")
+        st.metric("Neutral", f"{float(overall_sentiment['neu']):.2f}")
+        st.metric("Negative", f"{float(overall_sentiment['neg']):.2f}")
         
         # Overall sentiment
         compound_score = overall_sentiment['compound']
