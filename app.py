@@ -163,40 +163,92 @@ def create_sequences(data, time_step=50):
         Y.append(data[i + time_step, 0])
     return np.array(X), np.array(Y)
 
-# Prepare data with better preprocessing
-scaler = MinMaxScaler()
-stock_data['Scaled_Close'] = scaler.fit_transform(stock_data[['Close']])
+# Prepare data with enhanced error handling
+try:
+    scaler = MinMaxScaler()
+    stock_data['Scaled_Close'] = scaler.fit_transform(stock_data[['Close']])
+    
+    # Create sequences
+    dataset = stock_data['Scaled_Close'].values.reshape(-1, 1)
+    
+    # Validate data
+    if len(dataset) < time_step + 10:
+        st.error(f"❌ Insufficient data for analysis. Need at least {time_step + 10} data points, got {len(dataset)}")
+        st.stop()
+    
+    X, Y = create_sequences(dataset, time_step)
+    
+    # Validate sequences
+    if len(X) == 0 or len(Y) == 0:
+        st.error("❌ Could not create sequences from data. Please check your data quality.")
+        st.stop()
+    
+    # Split data with validation set
+    train_size = int(len(X) * 0.7)
+    val_size = int(len(X) * 0.15)
+    
+    # Ensure we have enough data for splits
+    if train_size < 1 or val_size < 1:
+        st.error("❌ Insufficient data for train/validation split")
+        st.stop()
+    
+    X_train, Y_train = X[:train_size], Y[:train_size]
+    X_val, Y_val = X[train_size:train_size+val_size], Y[train_size:train_size+val_size]
+    X_test, Y_test = X[train_size+val_size:], Y[train_size+val_size:]
+    
+    # Reshape for LSTM
+    X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
+    X_val = X_val.reshape(X_val.shape[0], X_val.shape[1], 1)
+    X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+    
+    # Display data info
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Training Samples", len(X_train))
+    with col2:
+        st.metric("Validation Samples", len(X_val))
+    with col3:
+        st.metric("Test Samples", len(X_test))
+    
+    # Additional data validation
+    st.info(f"📊 Data Summary:")
+    st.write(f"- Total data points: {len(dataset)}")
+    st.write(f"- Sequence length: {time_step}")
+    st.write(f"- Generated sequences: {len(X)}")
+    st.write(f"- Price range: ${stock_data['Close'].min():.2f} - ${stock_data['Close'].max():.2f}")
 
-# Create sequences
-dataset = stock_data['Scaled_Close'].values.reshape(-1, 1)
-X, Y = create_sequences(dataset, time_step)
-
-# Split data with validation set
-train_size = int(len(X) * 0.7)
-val_size = int(len(X) * 0.15)
-
-X_train, Y_train = X[:train_size], Y[:train_size]
-X_val, Y_val = X[train_size:train_size+val_size], Y[train_size:train_size+val_size]
-X_test, Y_test = X[train_size+val_size:], Y[train_size+val_size:]
-
-# Reshape for LSTM
-X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
-X_val = X_val.reshape(X_val.shape[0], X_val.shape[1], 1)
-X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
-
-# Display data info
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Training Samples", len(X_train))
-with col2:
-    st.metric("Validation Samples", len(X_val))
-with col3:
-    st.metric("Test Samples", len(X_test))
+except Exception as e:
+    st.error(f"❌ Error in data preprocessing: {e}")
+    st.error("🔍 Debugging information:")
+    st.write(f"- Stock data shape: {stock_data.shape if 'stock_data' in locals() else 'Not available'}")
+    st.write(f"- Time step: {time_step}")
+    st.write(f"- Dataset length: {len(dataset) if 'dataset' in locals() else 'Not available'}")
+    st.stop()
 
 # -----------------------------
 # Enhanced LSTM Model Setup
 # -----------------------------
 model_path = f"{ticker}_lstm_model.h5"
+
+def clear_corrupted_model(model_path):
+    """Remove corrupted model files"""
+    try:
+        if os.path.exists(model_path):
+            os.remove(model_path)
+            st.info(f"🗑️ Removed potentially corrupted model: {model_path}")
+    except Exception as e:
+        st.warning(f"⚠️ Could not remove model file: {e}")
+
+def validate_model(model):
+    """Validate that the model is properly loaded"""
+    try:
+        # Test model with dummy data
+        dummy_input = np.random.random((1, time_step, 1))
+        prediction = model.predict(dummy_input, verbose=0)
+        return True
+    except Exception as e:
+        st.warning(f"⚠️ Model validation failed: {e}")
+        return False
 
 def build_enhanced_lstm_model():
     """Build an enhanced LSTM model with better architecture"""
@@ -225,68 +277,180 @@ def build_enhanced_lstm_model():
     )
     return model
 
-# Model training with callbacks
+# Model training with enhanced error handling
+model = None
+history = None
+
 try:
     if os.path.exists(model_path):
         with st.spinner("🔄 Loading pre-trained model..."):
-            model = load_model(model_path)
-        st.success("✅ Pre-trained model loaded successfully!")
-    else:
+            try:
+                model = load_model(model_path)
+                
+                # Validate the loaded model
+                if validate_model(model):
+                    st.success("✅ Pre-trained model loaded and validated successfully!")
+                else:
+                    st.warning("⚠️ Model loaded but validation failed. Building new model...")
+                    clear_corrupted_model(model_path)
+                    model = None
+                    
+            except Exception as load_error:
+                st.warning(f"⚠️ Could not load pre-trained model: {load_error}")
+                st.info("🔄 Building new model instead...")
+                clear_corrupted_model(model_path)
+                model = None
+    
+    if model is None:
         with st.spinner("🤖 Training enhanced LSTM model... This may take a few minutes."):
-            model = build_enhanced_lstm_model()
-            
-            # Callbacks for better training
-            early_stopping = EarlyStopping(
-                monitor='val_loss',
-                patience=5,
-                restore_best_weights=True
-            )
-            
-            reduce_lr = ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,
-                patience=3,
-                min_lr=0.0001
-            )
-            
-            # Train the model
-            history = model.fit(
-                X_train, Y_train,
-                validation_data=(X_val, Y_val),
-                epochs=epochs,
-                batch_size=batch_size,
-                callbacks=[early_stopping, reduce_lr],
-                verbose=0
-            )
-            
-            model.save(model_path)
-            st.success("✅ Model trained and saved successfully!")
-            
-            # Plot training history
-            if 'history' in locals():
-                fig_history = go.Figure()
-                fig_history.add_trace(go.Scatter(
-                    y=history.history['loss'],
-                    mode='lines',
-                    name='Training Loss',
-                    line=dict(color='blue')
-                ))
-                fig_history.add_trace(go.Scatter(
-                    y=history.history['val_loss'],
-                    mode='lines',
-                    name='Validation Loss',
-                    line=dict(color='red')
-                ))
-                fig_history.update_layout(
-                    title="Model Training History",
-                    xaxis_title="Epoch",
-                    yaxis_title="Loss",
-                    height=400
+            try:
+                # Check data shapes
+                st.info(f"📊 Training data shape: {X_train.shape}")
+                st.info(f"📊 Validation data shape: {X_val.shape}")
+                
+                model = build_enhanced_lstm_model()
+                
+                # Display model summary
+                st.info("🏗️ Model Architecture:")
+                model_summary = []
+                model.summary(print_fn=lambda x: model_summary.append(x))
+                st.text('\n'.join(model_summary))
+                
+                # Callbacks for better training
+                early_stopping = EarlyStopping(
+                    monitor='val_loss',
+                    patience=5,
+                    restore_best_weights=True,
+                    verbose=1
                 )
-                st.plotly_chart(fig_history, use_container_width=True)
+                
+                reduce_lr = ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.5,
+                    patience=3,
+                    min_lr=0.0001,
+                    verbose=1
+                )
+                
+                # Train the model with progress tracking
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                def on_epoch_end(epoch, logs):
+                    progress = (epoch + 1) / epochs
+                    progress_bar.progress(progress)
+                    status_text.text(f'Epoch {epoch + 1}/{epochs} - Loss: {logs.get("loss", 0):.4f}')
+                
+                # Custom callback for progress
+                from tensorflow.keras.callbacks import LambdaCallback
+                progress_callback = LambdaCallback(on_epoch_end=on_epoch_end)
+                
+                # Train the model
+                history = model.fit(
+                    X_train, Y_train,
+                    validation_data=(X_val, Y_val),
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    callbacks=[early_stopping, reduce_lr, progress_callback],
+                    verbose=0
+                )
+                
+                # Clear progress indicators
+                progress_bar.empty()
+                status_text.empty()
+                
+                # Save the model
+                try:
+                    model.save(model_path)
+                    st.success("✅ Model trained and saved successfully!")
+                except Exception as save_error:
+                    st.warning(f"⚠️ Model trained but could not save: {save_error}")
+                
+                # Plot training history
+                if history and 'loss' in history.history:
+                    fig_history = go.Figure()
+                    fig_history.add_trace(go.Scatter(
+                        y=history.history['loss'],
+                        mode='lines',
+                        name='Training Loss',
+                        line=dict(color='blue')
+                    ))
+                    if 'val_loss' in history.history:
+                        fig_history.add_trace(go.Scatter(
+                            y=history.history['val_loss'],
+                            mode='lines',
+                            name='Validation Loss',
+                            line=dict(color='red')
+                        ))
+                    fig_history.update_layout(
+                        title="Model Training History",
+                        xaxis_title="Epoch",
+                        yaxis_title="Loss",
+                        height=400
+                    )
+                    st.plotly_chart(fig_history, use_container_width=True)
+                
+            except Exception as train_error:
+                st.error(f"❌ Error during model training: {train_error}")
+                st.error("🔧 Trying to build a simpler model...")
+                
+                # Fallback to simpler model
+                try:
+                    model = Sequential([
+                        LSTM(50, return_sequences=True, input_shape=(time_step, 1)),
+                        LSTM(50, return_sequences=False),
+                        Dense(25),
+                        Dense(1)
+                    ])
+                    model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+                    
+                    # Simple training without callbacks
+                    history = model.fit(
+                        X_train, Y_train,
+                        epochs=min(epochs, 10),  # Limit epochs for fallback
+                        batch_size=batch_size,
+                        verbose=0
+                    )
+                    
+                    st.success("✅ Fallback model trained successfully!")
+                    
+                except Exception as fallback_error:
+                    st.error(f"❌ Fallback model also failed: {fallback_error}")
+                    st.stop()
 
 except Exception as e:
-    st.error(f"❌ Error with model: {e}")
+    st.error(f"❌ Critical error with model: {e}")
+    st.error("🔍 Debugging information:")
+    st.write(f"- Model path: {model_path}")
+    st.write(f"- X_train shape: {X_train.shape if 'X_train' in locals() else 'Not available'}")
+    st.write(f"- Y_train shape: {Y_train.shape if 'Y_train' in locals() else 'Not available'}")
+    st.write(f"- Time step: {time_step}")
+    
+    # Troubleshooting tips
+    st.error("🔧 Troubleshooting Tips:")
+    st.write("1. **Clear model cache**: Delete any `.h5` files in your directory")
+    st.write("2. **Reduce time step**: Try a smaller time step (e.g., 20 instead of 50)")
+    st.write("3. **Check data**: Ensure you have enough historical data")
+    st.write("4. **Restart app**: Sometimes a fresh start helps")
+    st.write("5. **Check TensorFlow**: Ensure TensorFlow is properly installed")
+    
+    # Add a button to clear models
+    if st.button("🗑️ Clear All Model Files"):
+        import glob
+        model_files = glob.glob("*.h5")
+        for file in model_files:
+            try:
+                os.remove(file)
+                st.success(f"Removed {file}")
+            except:
+                st.warning(f"Could not remove {file}")
+        st.info("Please refresh the page and try again.")
+    
+    st.stop()
+
+# Verify model is loaded
+if model is None:
+    st.error("❌ Model could not be created. Please check your data and try again.")
     st.stop()
 
 # -----------------------------
