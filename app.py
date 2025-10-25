@@ -87,6 +87,12 @@ epochs = st.sidebar.slider("Training Epochs:", 5, 50, 15)
 batch_size = st.sidebar.selectbox("Batch Size:", [16, 32, 64], index=0)
 show_technical_indicators = st.sidebar.checkbox("Show Technical Indicators", value=True)
 
+# Sentiment Analysis Configuration
+st.sidebar.subheader("🧠 Sentiment Analysis")
+enable_sentiment_analysis = st.sidebar.checkbox("Enable Sentiment Analysis", value=True)
+max_news_articles = st.sidebar.slider("Max News Articles:", 3, 10, 5)
+sentiment_threshold = st.sidebar.slider("Sentiment Threshold:", 0.0, 0.5, 0.05, 0.01)
+
 # -----------------------------
 # Technical Indicators Functions
 # -----------------------------
@@ -555,27 +561,80 @@ def fetch_stock_news(stock_name, max_articles=5):
         st.warning(f"Could not fetch news: {e}")
         return []
 
-stock_news_articles = fetch_stock_news(ticker)
-st.subheader(f"📰 Latest News for {ticker}")
+if enable_sentiment_analysis:
+    stock_news_articles = fetch_stock_news(ticker, max_news_articles)
+    st.subheader(f"📰 Latest News for {ticker}")
 
-if not stock_news_articles:
-    st.info("No news articles found for this ticker.")
-else:
-    news_text_combined = ""
-    
-    # Display news articles in a more organized way
-    for i, article in enumerate(stock_news_articles, 1):
-        with st.expander(f"📰 Article {i}: {article['title'][:80]}..."):
-            st.write(f"**Title:** {article['title']}")
-            st.write(f"**Link:** {article['link']}")
-            if 'summary' in article:
-                st.write(f"**Summary:** {article['summary']}")
+    if not stock_news_articles:
+        st.info("No news articles found for this ticker.")
+    else:
+        news_text_combined = ""
         
-        news_text_combined += article['title'] + " "
+        # Display news articles in a more organized way
+        for i, article in enumerate(stock_news_articles, 1):
+            with st.expander(f"📰 Article {i}: {article['title'][:80]}..."):
+                st.write(f"**Title:** {article['title']}")
+                st.write(f"**Link:** {article['link']}")
+                if 'summary' in article:
+                    st.write(f"**Summary:** {article['summary']}")
+            
+            news_text_combined += article['title'] + " "
+else:
+    stock_news_articles = []
+    news_text_combined = ""
 
 # -----------------------------
-# Enhanced Sentiment Analysis & AI Insights
+# Advanced Sentiment Analysis Functions
 # -----------------------------
+def analyze_individual_articles(news_articles):
+    """Analyze sentiment for each individual article"""
+    article_sentiments = []
+    for article in news_articles:
+        article_text = article['title']
+        if 'summary' in article:
+            article_text += " " + article['summary']
+        
+        sentiment = sia.polarity_scores(article_text)
+        article_sentiments.append({
+            'title': article['title'][:50] + "...",
+            'sentiment': sentiment,
+            'overall': 'Positive' if sentiment['compound'] > 0.05 else 'Negative' if sentiment['compound'] < -0.05 else 'Neutral'
+        })
+    return article_sentiments
+
+def calculate_sentiment_trends(article_sentiments):
+    """Calculate sentiment trends and patterns"""
+    positive_count = sum(1 for art in article_sentiments if art['overall'] == 'Positive')
+    negative_count = sum(1 for art in article_sentiments if art['overall'] == 'Negative')
+    neutral_count = sum(1 for art in article_sentiments if art['overall'] == 'Neutral')
+    
+    total_articles = len(article_sentiments)
+    
+    return {
+        'positive_pct': (positive_count / total_articles) * 100 if total_articles > 0 else 0,
+        'negative_pct': (negative_count / total_articles) * 100 if total_articles > 0 else 0,
+        'neutral_pct': (neutral_count / total_articles) * 100 if total_articles > 0 else 0,
+        'sentiment_ratio': positive_count / negative_count if negative_count > 0 else positive_count,
+        'sentiment_strength': abs(sum(art['sentiment']['compound'] for art in article_sentiments)) / total_articles if total_articles > 0 else 0
+    }
+
+def get_sentiment_recommendation(sentiment_data, trends, threshold=0.05):
+    """Generate investment recommendation based on sentiment"""
+    compound = sentiment_data['compound']
+    strength = trends['sentiment_strength']
+    ratio = trends['sentiment_ratio']
+    
+    if compound > threshold * 2 and ratio > 2:
+        return "🟢 Strong Buy Signal", "Very positive sentiment with strong bullish momentum"
+    elif compound > threshold and ratio > 1.5:
+        return "🟡 Buy Signal", "Positive sentiment with moderate bullish momentum"
+    elif compound > -threshold and compound < threshold:
+        return "⚪ Hold", "Neutral sentiment, wait for clearer signals"
+    elif compound < -threshold and ratio < 0.67:
+        return "🔴 Sell Signal", "Negative sentiment with bearish momentum"
+    else:
+        return "🟠 Caution", "Mixed signals, proceed with caution"
+
 def get_gemini_insights(news_text):
     """Enhanced Gemini AI insights with better prompting"""
     if not news_text.strip():
@@ -602,9 +661,137 @@ def get_gemini_insights(news_text):
     else:
         return "Gemini AI not available. Please configure your API key for AI insights."
 
-# Perform sentiment analysis
-if news_text_combined:
-    sentiment = sia.polarity_scores(news_text_combined)
+# -----------------------------
+# Comprehensive Sentiment Analysis & AI Insights
+# -----------------------------
+if enable_sentiment_analysis and news_text_combined and stock_news_articles:
+    # Individual article analysis
+    article_sentiments = analyze_individual_articles(stock_news_articles)
+    sentiment_trends = calculate_sentiment_trends(article_sentiments)
+    
+    # Overall sentiment analysis
+    overall_sentiment = sia.polarity_scores(news_text_combined)
+    insights = get_gemini_insights(news_text_combined)
+    recommendation, recommendation_reason = get_sentiment_recommendation(overall_sentiment, sentiment_trends, sentiment_threshold)
+    
+    st.subheader(f"🧠 Advanced Sentiment Analysis & AI Insights for {ticker}")
+    
+    # Recommendation Section
+    st.markdown("### 🎯 Sentiment-Based Investment Recommendation")
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.markdown(f"**Recommendation:** {recommendation}")
+    with col2:
+        st.markdown(f"**Reasoning:** {recommendation_reason}")
+    
+    # AI Analysis
+    st.markdown("### 🤖 AI Market Analysis")
+    st.write(insights)
+    
+    # Comprehensive Sentiment Dashboard
+    st.markdown("### 📊 Comprehensive Sentiment Dashboard")
+    
+    # Main sentiment metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Overall Sentiment Score", f"{overall_sentiment['compound']:.3f}")
+    with col2:
+        st.metric("Sentiment Strength", f"{sentiment_trends['sentiment_strength']:.3f}")
+    with col3:
+        st.metric("Bullish Ratio", f"{sentiment_trends['sentiment_ratio']:.2f}")
+    with col4:
+        st.metric("Articles Analyzed", len(stock_news_articles))
+    
+    # Detailed sentiment visualization
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        # Enhanced sentiment pie chart
+        sentiment_labels = ["Positive", "Neutral", "Negative"]
+        sentiment_values = [overall_sentiment["pos"], overall_sentiment["neu"], overall_sentiment["neg"]]
+        colors = ['#2E8B57', '#FFA500', '#FF6B6B']
+        
+        fig_pie = px.pie(
+            values=sentiment_values, 
+            names=sentiment_labels, 
+            title="Overall Sentiment Distribution",
+            color_discrete_sequence=colors
+        )
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig_pie, use_container_width=True)
+    
+    with col2:
+        # Article-level sentiment breakdown
+        article_labels = [art['overall'] for art in article_sentiments]
+        article_counts = {
+            'Positive': article_labels.count('Positive'),
+            'Neutral': article_labels.count('Neutral'),
+            'Negative': article_labels.count('Negative')
+        }
+        
+        fig_bar = px.bar(
+            x=list(article_counts.keys()),
+            y=list(article_counts.values()),
+            title="Sentiment by Article Count",
+            color=list(article_counts.keys()),
+            color_discrete_map={'Positive': '#2E8B57', 'Neutral': '#FFA500', 'Negative': '#FF6B6B'}
+        )
+        fig_bar.update_layout(showlegend=False)
+        st.plotly_chart(fig_bar, use_container_width=True)
+    
+    # Individual article sentiment analysis
+    st.markdown("### 📰 Individual Article Sentiment Analysis")
+    
+    # Create a detailed table
+    sentiment_df = pd.DataFrame([
+        {
+            'Article': art['title'],
+            'Sentiment': art['overall'],
+            'Positive': f"{art['sentiment']['pos']:.3f}",
+            'Neutral': f"{art['sentiment']['neu']:.3f}",
+            'Negative': f"{art['sentiment']['neg']:.3f}",
+            'Compound': f"{art['sentiment']['compound']:.3f}"
+        }
+        for art in article_sentiments
+    ])
+    
+    st.dataframe(sentiment_df, use_container_width=True, hide_index=True)
+    
+    # Sentiment trends over time (if we had timestamps)
+    st.markdown("### 📈 Sentiment Analysis Summary")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Sentiment Breakdown:**")
+        st.write(f"• **Positive Articles:** {sentiment_trends['positive_pct']:.1f}%")
+        st.write(f"• **Neutral Articles:** {sentiment_trends['neutral_pct']:.1f}%")
+        st.write(f"• **Negative Articles:** {sentiment_trends['negative_pct']:.1f}%")
+    
+    with col2:
+        st.markdown("**Market Implications:**")
+        if overall_sentiment['compound'] > 0.1:
+            st.write("• 🚀 **Strong bullish momentum**")
+            st.write("• 📈 **Potential price increase**")
+        elif overall_sentiment['compound'] < -0.1:
+            st.write("• 📉 **Bearish sentiment**")
+            st.write("• ⚠️ **Potential price decline**")
+        else:
+            st.write("• ⚖️ **Mixed market signals**")
+            st.write("• 🔍 **Monitor for clearer trends**")
+    
+    # Sentiment strength indicator
+    st.markdown("### 💪 Sentiment Strength Analysis")
+    
+    strength_level = "Very Strong" if sentiment_trends['sentiment_strength'] > 0.3 else "Strong" if sentiment_trends['sentiment_strength'] > 0.2 else "Moderate" if sentiment_trends['sentiment_strength'] > 0.1 else "Weak"
+    
+    st.progress(sentiment_trends['sentiment_strength'], text=f"Sentiment Strength: {strength_level} ({sentiment_trends['sentiment_strength']:.3f})")
+
+elif enable_sentiment_analysis and news_text_combined:
+    # Fallback for when we have text but no individual articles
+    overall_sentiment = sia.polarity_scores(news_text_combined)
     insights = get_gemini_insights(news_text_combined)
     
     st.subheader(f"🧠 Sentiment Analysis & AI Insights for {ticker}")
@@ -613,13 +800,13 @@ if news_text_combined:
     st.markdown("### 🤖 AI Analysis")
     st.write(insights)
     
-    # Enhanced sentiment visualization
+    # Basic sentiment visualization
     col1, col2 = st.columns([1, 1])
     
     with col1:
         # Sentiment pie chart
         sentiment_labels = ["Positive", "Neutral", "Negative"]
-        sentiment_values = [sentiment["pos"], sentiment["neu"], sentiment["neg"]]
+        sentiment_values = [overall_sentiment["pos"], overall_sentiment["neu"], overall_sentiment["neg"]]
         colors = ['#2E8B57', '#FFA500', '#FF6B6B']
         
         fig_pie = px.pie(
@@ -633,20 +820,27 @@ if news_text_combined:
     with col2:
         # Sentiment scores
         st.markdown("### 📊 Sentiment Scores")
-        st.metric("Positive", f"{sentiment['pos']:.2f}")
-        st.metric("Neutral", f"{sentiment['neu']:.2f}")
-        st.metric("Negative", f"{sentiment['neg']:.2f}")
+        st.metric("Positive", f"{overall_sentiment['pos']:.2f}")
+        st.metric("Neutral", f"{overall_sentiment['neu']:.2f}")
+        st.metric("Negative", f"{overall_sentiment['neg']:.2f}")
         
         # Overall sentiment
-        compound_score = sentiment['compound']
+        compound_score = overall_sentiment['compound']
         if compound_score > 0.05:
-            overall_sentiment = "😊 Positive"
+            overall_sentiment_text = "😊 Positive"
         elif compound_score < -0.05:
-            overall_sentiment = "😞 Negative"
+            overall_sentiment_text = "😞 Negative"
         else:
-            overall_sentiment = "😐 Neutral"
+            overall_sentiment_text = "😐 Neutral"
         
-        st.metric("Overall Sentiment", overall_sentiment, f"{compound_score:.3f}")
+        st.metric("Overall Sentiment", overall_sentiment_text, f"{compound_score:.3f}")
+
+elif enable_sentiment_analysis:
+    st.subheader(f"🧠 Sentiment Analysis for {ticker}")
+    st.info("No news articles found for sentiment analysis. Try a different ticker or check your internet connection.")
+else:
+    st.subheader(f"🧠 Sentiment Analysis for {ticker}")
+    st.info("Sentiment analysis is disabled. Enable it in the sidebar to see sentiment insights.")
 
 # -----------------------------
 # Enhanced Sidebar Information
