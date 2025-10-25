@@ -832,11 +832,30 @@ def fetch_stock_news(stock_name, max_articles=5):
     """Enhanced news fetching with better error handling"""
     try:
         with st.spinner("📰 Fetching latest news..."):
-            news_articles = news.get_yf_rss(stock_name)
-            return news_articles[:max_articles]
+            # Handle Indian stock tickers (.NS suffix)
+            if stock_name.endswith('.NS'):
+                # Try both with and without .NS suffix
+                search_names = [stock_name, stock_name.replace('.NS', '')]
+            else:
+                search_names = [stock_name]
+            
+            news_articles = []
+            for search_name in search_names:
+                try:
+                    news_articles = news.get_yf_rss(search_name)
+                    if news_articles:
+                        break
+                except:
+                    continue
+            
+            return news_articles[:max_articles] if news_articles else []
     except Exception as e:
-        st.warning(f"Could not fetch news: {e}")
+        st.warning(f"Could not fetch news for {stock_name}: {e}")
         return []
+
+# Initialize variables
+stock_news_articles = []
+news_text_combined = ""
 
 if enable_sentiment_analysis:
     stock_news_articles = fetch_stock_news(ticker, max_news_articles)
@@ -856,9 +875,6 @@ if enable_sentiment_analysis:
                     st.write(f"**Summary:** {article['summary']}")
             
             news_text_combined += article['title'] + " "
-else:
-    stock_news_articles = []
-    news_text_combined = ""
 
 # -----------------------------
 # Advanced Sentiment Analysis Functions
