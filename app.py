@@ -19,6 +19,22 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # -----------------------------
+# Currency Conversion Setup
+# -----------------------------
+USD_TO_INR_RATE = 83.0  # Approximate USD to INR rate (can be updated with real-time data)
+
+def convert_to_inr(usd_amount):
+    """Convert USD amount to INR"""
+    return float(usd_amount) * USD_TO_INR_RATE
+
+def format_currency(amount, currency="INR"):
+    """Format amount with currency symbol"""
+    if currency == "INR":
+        return f"₹{amount:,.2f}"
+    else:
+        return f"${amount:,.2f}"
+
+# -----------------------------
 # NLTK Setup
 # -----------------------------
 try:
@@ -86,6 +102,24 @@ time_step = st.sidebar.slider("Time Step (LSTM window):", 10, 100, 50)
 epochs = st.sidebar.slider("Training Epochs:", 5, 50, 15)
 batch_size = st.sidebar.selectbox("Batch Size:", [16, 32, 64], index=0)
 show_technical_indicators = st.sidebar.checkbox("Show Technical Indicators", value=True)
+
+# Currency Configuration
+st.sidebar.subheader("💰 Currency Settings")
+currency_display = st.sidebar.selectbox("Display Currency:", ["INR (₹)", "USD ($)"], index=0)
+if currency_display == "INR (₹)":
+    use_inr = True
+    currency_symbol = "₹"
+    currency_name = "INR"
+else:
+    use_inr = False
+    currency_symbol = "$"
+    currency_name = "USD"
+
+# Display conversion rate
+if use_inr:
+    st.sidebar.info(f"💱 USD to INR Rate: ₹{USD_TO_INR_RATE:.2f}")
+else:
+    st.sidebar.info(f"💱 USD to INR Rate: ₹{USD_TO_INR_RATE:.2f}")
 
 # Sentiment Analysis Configuration
 st.sidebar.subheader("🧠 Sentiment Analysis")
@@ -216,10 +250,16 @@ try:
     st.write(f"- Sequence length: {time_step}")
     st.write(f"- Generated sequences: {len(X)}")
     
-    # Fix the price range formatting
-    min_price = float(stock_data['Close'].min())
-    max_price = float(stock_data['Close'].max())
-    st.write(f"- Price range: ${min_price:.2f} - ${max_price:.2f}")
+    # Fix the price range formatting with currency conversion
+    min_price_usd = float(stock_data['Close'].min())
+    max_price_usd = float(stock_data['Close'].max())
+    
+    if use_inr:
+        min_price_display = convert_to_inr(min_price_usd)
+        max_price_display = convert_to_inr(max_price_usd)
+        st.write(f"- Price range: ₹{min_price_display:,.2f} - ₹{max_price_display:,.2f}")
+    else:
+        st.write(f"- Price range: ${min_price_usd:.2f} - ${max_price_usd:.2f}")
 
 except Exception as e:
     st.error(f"❌ Error in data preprocessing: {e}")
@@ -564,7 +604,7 @@ fig_actual_predicted.update_layout(
 )
 
 fig_actual_predicted.update_xaxes(title_text="Date", row=2, col=1)
-fig_actual_predicted.update_yaxes(title_text="Stock Price (USD)", row=1, col=1)
+fig_actual_predicted.update_yaxes(title_text=f"Stock Price ({currency_name})", row=1, col=1)
 fig_actual_predicted.update_yaxes(title_text="Error", row=2, col=1)
 
 st.plotly_chart(fig_actual_predicted, use_container_width=True)
@@ -604,9 +644,19 @@ future_df = pd.DataFrame({
 })
 
 # Calculate price change
-current_price = stock_data['Close'].iloc[-1]
-future_df['Price_Change'] = future_df['Predicted_Close'] - current_price
-future_df['Price_Change_Pct'] = (future_df['Price_Change'] / current_price) * 100
+current_price_usd = stock_data['Close'].iloc[-1]
+future_df['Price_Change'] = future_df['Predicted_Close'] - current_price_usd
+future_df['Price_Change_Pct'] = (future_df['Price_Change'] / current_price_usd) * 100
+
+# Convert prices to display currency
+if use_inr:
+    current_price_display = convert_to_inr(current_price_usd)
+    future_df['Predicted_Close_Display'] = future_df['Predicted_Close'].apply(convert_to_inr)
+    future_df['Price_Change_Display'] = future_df['Price_Change'].apply(convert_to_inr)
+else:
+    current_price_display = current_price_usd
+    future_df['Predicted_Close_Display'] = future_df['Predicted_Close']
+    future_df['Price_Change_Display'] = future_df['Price_Change']
 
 st.subheader(f"🔮 Predicted Stock Prices for Next {future_days} Days")
 
@@ -614,15 +664,33 @@ st.subheader(f"🔮 Predicted Stock Prices for Next {future_days} Days")
 col1, col2 = st.columns([2, 1])
 
 with col1:
+    # Create display dataframe with proper currency formatting
+    display_df = future_df[['Date', 'Predicted_Close_Display', 'Price_Change_Display', 'Price_Change_Pct']].copy()
+    display_df.columns = ['Date', f'Predicted Price ({currency_name})', f'Price Change ({currency_name})', 'Change %']
+    
+    # Format currency columns
+    if use_inr:
+        display_df[f'Predicted Price ({currency_name})'] = display_df[f'Predicted Price ({currency_name})'].apply(lambda x: f"₹{x:,.2f}")
+        display_df[f'Price Change ({currency_name})'] = display_df[f'Price Change ({currency_name})'].apply(lambda x: f"₹{x:,.2f}")
+    else:
+        display_df[f'Predicted Price ({currency_name})'] = display_df[f'Predicted Price ({currency_name})'].apply(lambda x: f"${x:.2f}")
+        display_df[f'Price Change ({currency_name})'] = display_df[f'Price Change ({currency_name})'].apply(lambda x: f"${x:.2f}")
+    
+    display_df['Change %'] = display_df['Change %'].apply(lambda x: f"{x:.2f}%")
+    
     st.dataframe(
-        future_df.round(2),
+        display_df,
         use_container_width=True,
         hide_index=True
     )
 
 with col2:
-    st.metric("Current Price", f"${float(current_price):.2f}")
-    st.metric("Predicted Price (7 days)", f"${float(future_df['Predicted_Close'].iloc[6]):.2f}")
+    if use_inr:
+        st.metric("Current Price", f"₹{current_price_display:,.2f}")
+        st.metric("Predicted Price (7 days)", f"₹{float(future_df['Predicted_Close_Display'].iloc[6]):,.2f}")
+    else:
+        st.metric("Current Price", f"${current_price_display:.2f}")
+        st.metric("Predicted Price (7 days)", f"${float(future_df['Predicted_Close_Display'].iloc[6]):.2f}")
     
     # Overall trend
     trend = "📈 Bullish" if future_df['Price_Change'].iloc[-1] > 0 else "📉 Bearish"
@@ -696,7 +764,7 @@ if show_technical_indicators and 'RSI' in stock_data.columns:
         )
     
     fig_technical.update_layout(height=800, showlegend=True)
-    fig_technical.update_yaxes(title_text="Price", row=1, col=1)
+    fig_technical.update_yaxes(title_text=f"Price ({currency_name})", row=1, col=1)
     fig_technical.update_yaxes(title_text="RSI", row=2, col=1)
     fig_technical.update_yaxes(title_text="MACD", row=3, col=1)
     
@@ -1023,6 +1091,7 @@ st.sidebar.info("""
 📰 **News Sentiment**: Real-time sentiment analysis
 🤖 **AI Insights**: Gemini-powered market analysis
 📈 **Interactive Charts**: Advanced visualizations
+💰 **Multi-Currency**: Display prices in INR or USD
 
 **Disclaimer**: This tool is for educational purposes only. Not financial advice.
 """)
